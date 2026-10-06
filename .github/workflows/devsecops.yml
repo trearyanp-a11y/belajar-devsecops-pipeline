@@ -1,68 +1,317 @@
 name: DevSecOps CI/CD Pipeline
 
 on:
-    push:
-        branches: ["main", "master"]
-    pull_request:
-        branches: ["main", "master"]
-    workflow_dispatch: {}
+  push:
+    branches:
+      - main
+      - master
+
+  pull_request:
+    branches:
+      - main
+      - master
+
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
 
 jobs:
-    # ==========================================
-    # CI JOB 1: SAST Scan (Semgrep)
-    # ==========================================
-    sast-scan:
-        name: Semgrep SAST Scan
-        runs-on: ubuntu-latest
-        container:
-            image: semgrep/semgrep
-        steps:
-            - name: Checkout Source Code
-              uses: actions/checkout@v4
+  # ==========================================
+  # CI JOB 1: SAST Scan (Semgrep)
+  # ==========================================
+  sast-scan:
+    name: Semgrep SAST Scan
+    runs-on: ubuntu-latest
 
-            - name: Run Semgrep SAST
-              # --exclude=".github" mencegah Semgrep memeriksa file workflow YAML
-              run: semgrep scan --config auto --error --verbose --exclude=".github"
+    container:
+      image: semgrep/semgrep
 
-    # ==========================================
-    # CI JOB 2: Code Quality (Pylint)
-    # ==========================================
-    pylint-check:
-        name: Pylint Code Quality Gate
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout Source Code
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
 
-            - name: Setup Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version: "3.10"
+      - name: Run Semgrep SAST
+        run: |
+          semgrep scan \
+            --config auto \
+            --error \
+            --verbose \
+            --exclude=".github"
 
-            - name: Install Dependencies
-              run: |
-                  python -m pip install --upgrade pip
-                  pip install pylint
-                  pip install -r requirements.txt
 
-            - name: Run Pylint Check
-              run: pylint --fail-under=9.0 app.py
+  # ==========================================
+  # CI JOB 2: Code Quality (Pylint)
+  # ==========================================
+  pylint-check:
+    name: Pylint Code Quality Gate
+    runs-on: ubuntu-latest
 
-    # ==========================================
-    # CD STAGE: Deploy ke VM
-    # ==========================================
-    deploy-to-vm:
-        name: Build & Deploy to VirtualBox VM
-        needs: [sast-scan, pylint-check]
-        runs-on: self-hosted
-        steps:
-            - name: Checkout Source Code
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
 
-            - name: Build and Run Container
-              run: |
-                  docker build -t secure-flask-app:latest .
-                  docker stop web-flask || true
-                  docker rm web-flask || true
-                  docker run -d -p 5000:5000 --name web-flask secure-flask-app:latest
-                  docker ps | grep web-flask
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pylint
+          pip install -r requirements.txt
+
+      - name: Run Pylint Check
+        run: |
+          pylint --fail-under=9.0 app.py
+
+
+  # ==========================================
+  # CD STAGE: Build & Deploy ke VirtualBox VM
+  # Hanya berjalan setelah push ke main/master
+  # ==========================================
+  deploy-to-vm:
+    name: Build & Deploy to VirtualBox VM
+
+    needs:
+      - sast-scan
+      - pylint-check
+
+    # Jangan deploy saat Pull Request.
+    # Deploy hanya setelah commit masuk ke main/master.
+    if: >
+      github.event_name == 'push' &&
+      (
+        github.ref == 'refs/heads/main' ||
+        github.ref == 'refs/heads/master'
+      )
+
+    runs-on: self-hosted
+
+    timeout-minutes: 15
+
+    steps:
+      # ------------------------------------------
+      # Checkout
+      # ------------------------------------------
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+
+      # ------------------------------------------
+      # Check Docker
+      # ------------------------------------------
+      - name: Check Docker Environment
+        shell: bash
+        run: |
+          echo "Docker version:"
+          docker --version
+
+          echo ""
+          echo "Docker info:"
+          docker info
+
+
+      # ------------------------------------------
+      # Pull Base Image dengan Retry
+      # ------------------------------------------
+      - name: Pull Python Base Image
+        shell: bash
+        run: |
+          set +e
+
+          IMAGE="python:3.10-slim"
+          MAX_ATTEMPTS=3
+          SUCCESS=0
+
+          echo "=========================================="
+          echo "Pull Docker Base Image"
+          echo "Image: $IMAGE"
+          echo "=========================================="
+
+          for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
+            echo ""
+            echo "Docker pull attempt $ATTEMPT/$MAX_ATTEMPTS"
+
+            if docker pull "$IMAGE"; then
+              echo "Docker pull berhasil."
+              SUCCESS=1
+              break
+            fi
+
+            echo "Docker pull gagal."
+
+            if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+              echo "Menunggu 20 detik sebelum retry..."
+              sleep 20
+            fi
+          done
+
+          echo ""
+
+          # Jika pull gagal, tetapi image sudah tersedia
+          # di cache lokal Docker, tetap boleh lanjut.
+          if [ "$SUCCESS" -eq 0 ]; then
+            echo "Mengecek image lokal..."
+
+            if docker image inspect "$IMAGE" > /dev/null 2>&1; then
+              echo "Image sudah tersedia di Docker cache lokal."
+              echo "Build akan dilanjutkan menggunakan image lokal."
+            else
+              echo "ERROR: Image $IMAGE tidak tersedia."
+              echo "Gagal mengambil image dari Docker Hub."
+              exit 1
+            fi
+          fi
+
+          echo "Base image siap digunakan."
+
+
+      # ------------------------------------------
+      # Build Docker Image
+      # ------------------------------------------
+      - name: Build Docker Image
+        shell: bash
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo "Building Docker Image"
+          echo "=========================================="
+
+          docker build \
+            --pull=false \
+            -t secure-flask-app:latest .
+
+          echo "Docker image berhasil dibuat."
+
+          docker images | grep secure-flask-app
+
+
+      # ------------------------------------------
+      # Stop Container Lama
+      # ------------------------------------------
+      - name: Stop Old Container
+        shell: bash
+        run: |
+          echo "Menghentikan container lama..."
+
+          docker stop web-flask 2>/dev/null || true
+          docker rm web-flask 2>/dev/null || true
+
+          echo "Container lama sudah ditangani."
+
+
+      # ------------------------------------------
+      # Run Container Baru
+      # ------------------------------------------
+      - name: Run New Container
+        shell: bash
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo "Starting New Container"
+          echo "=========================================="
+
+          docker run -d \
+            --name web-flask \
+            -p 5000:5000 \
+            --restart unless-stopped \
+            secure-flask-app:latest
+
+          echo "Container berhasil dijalankan."
+
+          sleep 5
+
+          docker ps --filter "name=web-flask"
+
+
+      # ------------------------------------------
+      # Health Check
+      # ------------------------------------------
+      - name: Verify Application Health
+        shell: bash
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo "Application Health Check"
+          echo "=========================================="
+
+          MAX_ATTEMPTS=10
+
+          for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
+            echo "Health check attempt $ATTEMPT/$MAX_ATTEMPTS"
+
+            if curl --fail --silent --show-error \
+              http://127.0.0.1:5000/health; then
+
+              echo ""
+              echo "Health check berhasil."
+              exit 0
+            fi
+
+            echo "Aplikasi belum siap."
+            sleep 3
+          done
+
+          echo "ERROR: Health check gagal."
+
+          echo ""
+          echo "Container logs:"
+          docker logs web-flask
+
+          exit 1
+
+
+      # ------------------------------------------
+      # Verify Routes
+      # ------------------------------------------
+      - name: Verify Application Routes
+        shell: bash
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo "Testing /health"
+          echo "=========================================="
+
+          curl --fail --silent --show-error \
+            http://127.0.0.1:5000/health
+
+          echo ""
+          echo ""
+
+          echo "=========================================="
+          echo "Testing /about"
+          echo "=========================================="
+
+          curl --fail --silent --show-error \
+            http://127.0.0.1:5000/about
+
+          echo ""
+          echo ""
+          echo "Semua route berhasil diakses."
+
+
+      # ------------------------------------------
+      # Final Container Status
+      # ------------------------------------------
+      - name: Show Container Status
+        shell: bash
+        run: |
+          echo "=========================================="
+          echo "Final Container Status"
+          echo "=========================================="
+
+          docker ps --filter "name=web-flask"
+
+          echo ""
+          echo "=========================================="
+          echo "Container Logs"
+          echo "=========================================="
+
+          docker logs --tail 50 web-flask
