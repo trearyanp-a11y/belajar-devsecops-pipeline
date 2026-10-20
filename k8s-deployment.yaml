@@ -14,10 +14,14 @@ spec:
       labels:
         app: flask-app
     spec:
+      securityContext:
+        runAsNonRoot: true
       containers:
         - name: flask-app
           image: secure-flask-app:latest
           imagePullPolicy: Never
+          securityContext:
+            allowPrivilegeEscalation: false
           ports:
             - containerPort: 5000
 ---
