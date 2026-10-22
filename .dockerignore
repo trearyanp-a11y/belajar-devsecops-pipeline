@@ -1,0 +1,5 @@
+@"
+.git
+*.db
+__pycache__
+"@ | Out-File -Encoding utf8 .dockerignore
