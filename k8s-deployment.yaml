@@ -1,3 +1,4 @@
+@"
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,6 +17,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1000
       containers:
         - name: flask-app
           image: secure-flask-app:latest
@@ -37,3 +39,4 @@ spec:
     - port: 5000
       targetPort: 5000
       nodePort: 30050
+"@ | Out-File -Encoding utf8 k8s-deployment.yaml
