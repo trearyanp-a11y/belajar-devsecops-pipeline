@@ -94,8 +94,9 @@ Langkah image:
 
 Kebijakan scan image tersebut tidak berarti nol kerentanan. Trivy filesystem
 memblokir HIGH/CRITICAL; aturan dan database CVE dapat berubah.
-Image dasar, dependensi aplikasi, dan action refs dipin. Aturan Semgrep auto
-dan database kerentanan tetap diperbarui oleh penyedianya.
+Image dasar, dependensi aplikasi, dan action refs dipin. Ruleset Semgrep
+p/python, p/secrets, p/dockerfile dan database kerentanan tetap diperbarui
+oleh penyedianya; metrics Semgrep dinonaktifkan.
 
 Secret aplikasi tidak disimpan dalam source. Runner tidak memerlukan token
 GitHub pribadi pada workflow; artifact ditangani oleh token run.

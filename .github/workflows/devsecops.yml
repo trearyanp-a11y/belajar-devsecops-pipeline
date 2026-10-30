@@ -25,7 +25,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Run Semgrep SAST
-        run: semgrep scan --config auto --error --metrics=off --exclude=".github" --exclude="tests"
+        run: semgrep scan --config p/python --config p/secrets --config p/dockerfile --error --metrics=off --exclude=".github" --exclude="tests"
 
   pylint-check:
     name: Pylint and Regression Tests
