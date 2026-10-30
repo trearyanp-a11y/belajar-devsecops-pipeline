@@ -129,8 +129,10 @@ def index():
             cursor = conn.cursor()
 
             # Parameterized query untuk mencegah SQL Injection
-            query = "SELECT password FROM users WHERE username = '%s'" % username
-            cursor.execute(query)
+            query = """
+                SELECT password FROM users WHERE username = ?
+            """
+            cursor.execute(query, (username,))
             user = cursor.fetchone()
 
         if user and check_password_hash(user[0], password):
