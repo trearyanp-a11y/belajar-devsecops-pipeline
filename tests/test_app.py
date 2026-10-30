@@ -4,6 +4,7 @@ import gc
 import os
 from pathlib import Path
 import secrets
+import re
 import sqlite3
 import subprocess
 import sys
@@ -27,8 +28,21 @@ class LoginTests(unittest.TestCase):
         os.environ["ADMIN_PASSWORD"] = self.password
         os.chdir(self.directory.name)
         self.database = Path(self.directory.name) / "users.db"
-        app.config.update(TESTING=True, DATABASE=str(self.database))
+        app.config.update(TESTING=True, DATABASE=str(self.database),
+                          SECRET_KEY=secrets.token_hex(32))
         self.client = app.test_client()
+
+    def csrf(self):
+        """Obtain the same token a browser reads from the rendered login form."""
+        response = self.client.get("/")
+        return re.search(rb'name="csrf_token" value="([^"]+)"', response.data)[1].decode()
+
+    def login(self, username="admin", password=None):
+        """Exercise login with a genuine browser-issued CSRF token."""
+        return self.client.post("/", data={
+            "username": username, "password": password or self.password,
+            "csrf_token": self.csrf(),
+        })
 
     def tearDown(self):
         app.config.clear()
@@ -58,10 +72,10 @@ class LoginTests(unittest.TestCase):
         self.assertEqual(username, "admin")
         self.assertNotEqual(stored, self.password)
         self.assertTrue(check_password_hash(stored, self.password))
-        response = self.client.post(
-            "/", data={"username": "admin", "password": self.password}
-        )
-        self.assertIn(b"Login Berhasil", response.data)
+        response = self.login()
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.location.endswith("/game"))
+        self.assertEqual(self.client.get("/game").status_code, 200)
 
     def test_plaintext_migration_preserves_accounts_and_is_idempotent(self):
         """A second startup must neither lose accounts nor hash hashes again."""
@@ -77,10 +91,8 @@ class LoginTests(unittest.TestCase):
         self.assertEqual(self.stored_passwords(), first)
         self.assertEqual([row[0] for row in first], ["admin", "student"])
         self.assertTrue(all(check_password_hash(row[1], self.password) for row in first))
-        response = self.client.post(
-            "/", data={"username": "student", "password": self.password}
-        )
-        self.assertIn(b"Login Berhasil", response.data)
+        response = self.login("student")
+        self.assertEqual(response.status_code, 302)
 
     def test_empty_database_requires_an_explicit_seed_password(self):
         """An empty installation must not silently create a shared password."""
@@ -111,10 +123,86 @@ class LoginTests(unittest.TestCase):
         init_db()
         for username in ("admin", "admin' OR '1'='1' --", "missing"):
             with self.subTest(username=username):
-                response = self.client.post(
-                    "/", data={"username": username, "password": "wrong"}
-                )
+                response = self.login(username, "wrong")
                 self.assertIn(b"Login Gagal", response.data)
+                self.assertEqual(self.client.get("/game").status_code, 302)
+
+    def test_anonymous_game_and_apis_are_protected(self):
+        """Knowing a URL must not bypass login."""
+        init_db()
+        self.assertEqual(self.client.get("/game").status_code, 302)
+        for route in ("/api/leaderboard", "/api/search?player_name=admin"):
+            self.assertEqual(self.client.get(route).status_code, 401)
+        self.assertEqual(self.client.post("/api/score", json={}).status_code, 401)
+
+    def test_csrf_is_required_for_login_score_and_logout(self):
+        """Cross-site form/JSON requests must not change authentication or scores."""
+        init_db()
+        self.assertEqual(self.client.post("/", data={
+            "username": "admin", "password": self.password,
+        }).status_code, 400)
+        self.login()
+        self.assertEqual(self.client.post("/api/score", json={
+            "score": 10, "duration_seconds": 1,
+        }).status_code, 400)
+        self.assertEqual(self.client.post("/logout").status_code, 400)
+        self.assertEqual(self.client.post("/api/score", json={}, headers={
+            "X-CSRF-Token": "token-salah-é",
+        }).status_code, 400)
+        self.assertEqual(self.client.get("/game").status_code, 200)
+
+    def test_score_uses_logged_in_account_and_survives_startup(self):
+        """A submitted player_name must not impersonate another account."""
+        init_db()
+        self.login()
+        token = self.client.get("/game").data
+        token = re.search(rb'name="csrf-token" content="([^"]+)"', token)[1].decode()
+        response = self.client.post("/api/score", json={
+            "player_name": "someone_else", "score": 120, "duration_seconds": 4.5,
+        }, headers={"X-CSRF-Token": token})
+        self.assertEqual(response.status_code, 201)
+        init_db()
+        rows = self.client.get("/api/leaderboard").json
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["player_name"], "admin")
+        self.assertEqual(rows[0]["score"], 120)
+        self.assertEqual(self.client.get("/api/search?player_name=admin").json, rows)
+        self.assertEqual(self.client.get(
+            "/api/search", query_string={"player_name": "' OR 1=1 --"}
+        ).json, [])
+        self.assertEqual(self.client.post("/logout", data={
+            "csrf_token": token,
+        }).status_code, 302)
+        self.assertEqual(self.client.get("/game").status_code, 302)
+        self.assertEqual(self.client.get("/api/leaderboard").status_code, 401)
+
+    def test_invalid_score_payloads_do_not_write_rows(self):
+        """Malformed JSON and non-finite or coerced numeric values are rejected."""
+        init_db()
+        self.login()
+        token = re.search(rb'name="csrf-token" content="([^"]+)"',
+                          self.client.get("/game").data)[1].decode()
+        for payload in ([], None, {}, {"score": True, "duration_seconds": 1},
+                        {"score": -1, "duration_seconds": 1},
+                        {"score": "10", "duration_seconds": 1},
+                        {"score": 10, "duration_seconds": float("nan")},
+                        {"score": 10, "duration_seconds": float("inf")},
+                        {"score": 10, "duration_seconds": -1}):
+            with self.subTest(payload=payload):
+                response = self.client.post("/api/score", json=payload,
+                                            headers={"X-CSRF-Token": token})
+                self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.client.get("/api/leaderboard").json, [])
+
+    def test_session_can_be_read_by_other_pod_but_not_another_key(self):
+        """A shared secret enables load balancing; a different secret rejects it."""
+        init_db()
+        self.login()
+        other = app.test_client()
+        other.set_cookie("session", self.client.get_cookie("session").value)
+        self.assertEqual(other.get("/game").status_code, 200)
+        app.config["SECRET_KEY"] = secrets.token_hex(32)
+        self.assertEqual(other.get("/game").status_code, 302)
 
     def test_about_identifies_the_deployed_revision(self):
         """Deployment verification must distinguish old and new artifacts."""

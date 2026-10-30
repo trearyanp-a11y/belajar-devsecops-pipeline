@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Arena · Pac-Man Mini</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/portal.css') }}">
+</head>
+<body>
+
+    <!-- Top Bar -->
+    <header class="top-bar">
+        <div class="top-bar-inner">
+            <div class="brand">
+                <span class="pac-symbol" aria-hidden="true"></span>
+                <div>
+                    <h1 class="brand-title">PAC-MAN <span class="brand-badge">MINI</span></h1>
+                    <p class="brand-sub">CLASSIC PLAY. NEW RECORDS.</p>
+                </div>
+            </div>
+            <div class="account-menu">
+                <span class="account-name"><span class="tiny-dot"></span> {{ player }}</span>
+                <form method="post" action="{{ url_for('logout') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="btn btn-secondary" type="submit">Keluar</button>
+                </form>
+            </div>
+        </div>
+    </header>
+
+    <div class="arena-heading"><p class="eyebrow">PLAYER ONE / ARENA</p><h2>Kejar skor tertinggimu.</h2><p>Ambil power pellet, balikkan keadaan, dan taklukkan labirin.</p></div>
+    <div class="layout">
+        <!-- Game Column -->
+        <main class="game-col">
+            <div class="game-card">
+                <!-- Score Row -->
+                <div class="score-row" role="status" aria-label="Game score">
+                    <div class="score-block">
+                        <span class="score-label">SCORE</span>
+                        <span id="currentScore" class="score-value" aria-live="polite">00</span>
+                    </div>
+                    <div class="score-block center">
+                        <span class="score-label">BEST</span>
+                        <span id="topScore" class="score-value best">0000</span>
+                    </div>
+                    <div class="score-block end">
+                        <span class="score-label">TIME</span>
+                        <span id="gameTimer" class="score-value">0.0S</span>
+                    </div>
+                </div>
+
+                <!-- Canvas -->
+                <div class="canvas-wrap">
+                    <canvas id="gameCanvas" width="456" height="456" role="img" aria-label="Pac-Man game board"></canvas>
+
+                    <!-- Overlay -->
+                    <div id="arcadeOverlay" class="overlay">
+                        <div class="overlay-inner">
+                            <div class="overlay-ready">READY!</div>
+                            <div class="overlay-chars" aria-hidden="true">
+                                <span class="char-pac">ᗧ</span>
+                                <span class="char-dots">···</span>
+                                <span class="char-ghost red">ᗣ</span>
+                                <span class="char-ghost cyan">ᗣ</span>
+                            </div>
+                            <button id="startBtn" class="btn btn-primary btn-lg">Play Game</button>
+                            <p class="overlay-hint">Arrow keys / WASD &middot; P pause &middot; R restart</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status Bar -->
+                <div class="status-bar">
+                    <div class="lives" id="livesIndicator" role="status" aria-label="Lives remaining">
+                        <span class="life" aria-hidden="true">ᗧ</span>
+                        <span class="life" aria-hidden="true">ᗧ</span>
+                        <span class="life" aria-hidden="true">ᗧ</span>
+                        <span class="sr-only">3 lives</span>
+                    </div>
+                    <div class="pellets" role="status" aria-label="Pellets remaining">
+                        Pellets: <span id="pelletCount">0</span>
+                    </div>
+                </div>
+
+                <!-- Controls -->
+                <div class="controls" role="toolbar" aria-label="Game controls">
+                    <button id="pauseBtn" class="btn btn-secondary">Pause</button>
+                    <button id="resetBtn" class="btn btn-danger">Reset</button>
+                    <button id="soundBtn" class="btn btn-secondary" aria-live="polite">Sound: On</button>
+                </div>
+
+                <!-- Mobile D-Pad -->
+                <nav class="dpad" id="virtualDpad" aria-label="Game controls">
+                    <button type="button" class="dpad-btn" id="dpadUp" aria-label="Move up">&#x25B2;</button>
+                    <div class="dpad-row">
+                        <button type="button" class="dpad-btn" id="dpadLeft" aria-label="Move left">&#x25C0;</button>
+                        <div class="dpad-center" aria-hidden="true"></div>
+                        <button type="button" class="dpad-btn" id="dpadRight" aria-label="Move right">&#x25B6;</button>
+                    </div>
+                    <button type="button" class="dpad-btn" id="dpadDown" aria-label="Move down">&#x25BC;</button>
+                </nav>
+            </div>
+        </main>
+
+        <!-- Sidebar -->
+        <aside class="side-col">
+            <!-- Leaderboard -->
+            <section class="card" aria-label="Leaderboard">
+                <div class="card-header">
+                    <h2 class="card-title">Rankings</h2>
+                    <button id="refreshBtn" class="btn btn-icon" aria-label="Refresh leaderboard">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.65 2.35A8 8 0 1 0 16 8h-2a6 6 0 1 1-1.76-4.24L10 6h6V0l-2.35 2.35z" fill="currentColor"/></svg>
+                    </button>
+                </div>
+                <div class="table-wrap">
+                    <table class="lb-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">#</th>
+                                <th scope="col">Score</th>
+                                <th scope="col">Player</th>
+                                <th scope="col">Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="leaderboardList" aria-live="polite">
+                            <tr>
+                                <td colspan="4" class="muted">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Player Search -->
+            <section class="card" aria-label="Player search">
+                <div class="card-header">
+                    <h2 class="card-title">Player Search</h2>
+                </div>
+                <p class="card-note">Cari catatan permainan berdasarkan username.</p>
+                <form id="searchPlayerForm" class="search-form">
+                    <label for="searchPlayerInput" class="sr-only">Player name</label>
+                    <input type="text" id="searchPlayerInput" maxlength="128" placeholder="Masukkan username..." autocomplete="off">
+                    <button type="submit" class="btn btn-primary btn-sm">Search</button>
+                </form>
+                <div id="searchOutput" class="search-results" role="status" aria-live="polite"></div>
+            </section>
+        </aside>
+    </div>
+
+    <!-- Modal -->
+    <div id="scoreModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalHeader">
+        <div class="modal">
+            <div id="modalHeader" class="modal-heading">GAME OVER</div>
+            <p id="modalSubtext" class="modal-sub">Out of lives</p>
+
+            <div class="modal-stats">
+                <div class="stat-row">
+                    <span>Final Score</span>
+                    <span id="finalScoreVal" class="stat-val">0</span>
+                </div>
+                <div class="stat-row">
+                    <span>Time</span>
+                    <span id="finalTimeVal" class="stat-val">0.0S</span>
+                </div>
+            </div>
+
+            <form id="recordForm" class="modal-form">
+                <label for="initialsInput" class="form-label">Akun pemain</label>
+                <input type="text" id="initialsInput" value="{{ player }}" readonly>
+                <div id="modalMsg" class="modal-msg hidden" role="status" aria-live="polite"></div>
+
+                <div class="modal-actions">
+                    <button type="submit" id="recordSubmitBtn" class="btn btn-primary">Submit Score</button>
+                    <button type="button" id="modalDismissBtn" class="btn btn-secondary">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/game.js') }}"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # Belajar DevSecOps Pipeline
 
-Aplikasi demonstrasi login Flask untuk ujian DevSecOps. Pipeline menjalankan
+Aplikasi login dan game Pac-Man untuk ujian DevSecOps. Pipeline menjalankan
 empat gerbang CI paralel, membangun dan memindai satu image, lalu mengirim image
 yang sama ke K3s di VM Ubuntu. Dua pod berbagi SQLite pada PVC.
 
@@ -13,7 +13,10 @@ yang sama ke K3s di VM Ubuntu. Dua pod berbagi SQLite pada PVC.
 - Image ditandai SHA commit; /about mengembalikan revision untuk verifikasi.
 - K3s satu node 192.168.15.151, dua replika, NodePort 30050 -> port 5000.
 - Database /data/users.db pada PVC flask-pvc 1Gi, local-path, ReadWriteOnce.
-- Login mengecek hash password dengan parameterized query.
+- Login mengecek hash password dengan parameterized query, lalu membuat session.
+- `/game` dan seluruh API skor wajib login; logout memakai POST dengan CSRF.
+- Tabel users dan scores berbagi DB pada PVC; skor memakai nama akun login.
+- Dua pod memakai SECRET_KEY yang sama dari Secret flask-session.
 - Gunicorn berjalan sebagai UID 1000 dengan filesystem root read-only.
 - Readiness /health memeriksa database; liveness /live memeriksa proses.
 - Diagram: [JPG](docs/diagram_pipeline.jpg), [Mermaid](docs/pipeline.mmd).
@@ -23,9 +26,11 @@ URL laboratorium:
 - http://192.168.15.151:30050/health
 - http://192.168.15.151:30050/about
 
-Ini aplikasi demonstrasi verifikasi kredensial, belum menyediakan sesi login
-atau halaman terlindungi. HTTP NodePort ditujukan untuk jaringan lab; HTTPS
-diperlukan jika akan dipublikasikan. Dua pod di satu VM bukan HA antar-node.
+Alur pengguna: portal login -> session valid -> Pac-Man -> leaderboard -> logout.
+Session berlaku delapan jam; cookie HttpOnly dan SameSite=Lax. Semua POST
+memerlukan token CSRF. HTTP NodePort digunakan di lab; saat menyediakan HTTPS,
+aktifkan COOKIE_SECURE=true. Dua pod di satu VM bukan HA antar-node. Skor dihitung
+browser sehingga belum memiliki validasi anticurang di server.
 
 ## Menjalankan lokal di Windows
 
@@ -34,7 +39,7 @@ Gunicorn digunakan dalam container Linux, bukan Windows.
 
     python -m venv .venv
     .venv\Scripts\python -m pip install -r requirements.txt
-    .venv\Scripts\python -c "import getpass,os; os.environ['ADMIN_PASSWORD']=getpass.getpass('Password admin lokal: '); from app import app,init_db; init_db(); app.run()"
+    .venv\Scripts\python -c "import getpass,os,secrets; os.environ['SECRET_KEY']=secrets.token_hex(32); os.environ['ADMIN_PASSWORD']=getpass.getpass('Password admin lokal: '); from app import app,init_db; init_db(); app.run()"
 
 Buka http://127.0.0.1:5000. Akun default bernama admin; password baru diminta
 untuk database kosong. Jangan commit file database, .env, atau password.
@@ -46,7 +51,12 @@ CI memakai Pylint 4.1.1 dengan ambang 9.0 pada app.py dan wsgi.py.
 
 ## Provisioning dan migrasi database
 
-Pada instalasi baru, buat Secret sebelum deployment. Input berikut tidak
+Sebelum deployment, buat kunci session satu kali; kedua pod harus memakai key
+yang sama. Jangan mengganti Secret saat masih ada pod dengan key sebelumnya.
+
+    python3 -c 'import secrets,sys; sys.stdout.write(secrets.token_hex(32))' | sudo k3s kubectl create secret generic flask-session --from-file=secret-key=/dev/stdin
+
+Pada instalasi baru, buat juga Secret admin. Input berikut tidak
 menaruh password pada argumen CLI atau history:
 
     read -rsp 'Password admin awal: ' ADMIN_PASSWORD; echo
@@ -68,10 +78,9 @@ Untuk deployment lama yang memakai /app/users.db di setiap pod:
    plaintext menjadi hash satu kali, dan menandai PRAGMA user_version=1.
 6. Verifikasi akun lama tetap dapat login dan kedua pod membaca PVC yang sama.
 
-Pada VM lab, pencadangan dan penyalinan awal telah dipersiapkan di:
- /home/yan/pipeline-backups/20261030-184611
-Direktori backup 0700 dan file DB 0600. Backup tersebut masih mengandung data
-legacy sensitif; simpan hanya pada VM, jangan unggah ke GitHub.
+Migrasi akun VM sudah dilakukan. Backup VM sementara telah dihapus sesuai
+permintaan pengguna; database aktif tetap berada di PVC. Jangan menghapus PVC.
+Startup portal menambahkan tabel scores secara idempoten tanpa mereset akun.
 
 Migrasi menutup setiap koneksi secara eksplisit. Startup paralel diserialisasi.
 SQLite tetap memiliki batas satu penulis; local-path hanya untuk satu node.
@@ -109,9 +118,9 @@ Run workflow -> pilih branch demo. Push branch demo tidak otomatis memicu
 workflow karena filter push hanya main/master.
 
 1. Pastikan baseline lulus; catat SHA aman dengan git rev-parse HEAD.
-2. Buat perubahan sengaja gagal pada app.py, misalnya tambahkan sintaks Python
-   tidak lengkap. Commit dengan git add app.py, lalu push branch demo.
-3. Jalankan workflow manual. Tunjukkan quality gate merah, pesan kegagalan,
+2. Ubah query login app.py menjadi SQL rentan seperti contoh di bawah.
+   Commit dengan git add app.py, lalu push branch demo.
+3. Jalankan workflow manual. Tunjukkan Semgrep merah, rule SQL injection,
    dan image/deployment skipped. Aplikasi lama tetap dapat diakses.
 4. Pulihkan dengan git restore --source=<SHA_AMAN> -- app.py.
 5. Periksa diff, jalankan regression tests/Pylint, commit perbaikan dan push.
@@ -119,9 +128,25 @@ workflow karena filter push hanya main/master.
 7. Cocokkan /about.revision, tag image Deployment, dan SHA run.
 8. Tunjukkan dua pod Ready, PVC Bound, dan halaman web.
 
-Skenario sintaks rusak membuktikan quality gate. Jika ingin membuktikan SAST,
-gunakan perubahan SQL tidak terparameterisasi dan tunjukkan rule Semgrep yang
-benar-benar mendeteksinya. Jangan menyebut kegagalan sintaks sebagai temuan SQLi.
+Contoh gagal (hanya pada branch demo, jangan deploy query ini):
+
+```python
+query = "SELECT password FROM users WHERE username = '%s'" % username
+cursor.execute(query)
+```
+
+Contoh berhasil (pertahankan hashing password dan session):
+
+```python
+query = "SELECT password FROM users WHERE username = ?"
+cursor.execute(query, (username,))
+```
+
+Semgrep harus memblokir versi rentan sebelum deployment. Trivy memeriksa
+dependency/image, bukan menggantikan pemeriksaan SQL injection. Login gagal
+karena password salah merupakan pengujian autentikasi, berbeda dari gate CI
+yang gagal. Sesudah pipeline aman sukses, login dengan akun valid dan mainkan
+Pac-Man sebagai bukti aplikasi gabungan sudah terdeploy.
 
 Perintah pemeriksaan pada VM:
 
@@ -147,21 +172,25 @@ image: tag per commit pada manifest sudah membuat perubahan image eksplisit.
 
 ## Proyek Pac-Man
 
-Proyek Pac-Man berada di folder saudara dan belum menjadi aplikasi ujian aktif.
-Jika nanti keduanya dijalankan bersamaan, pakai NodePort berbeda dari 30050 untuk
-game, integrasikan repo/runner, dan jangan biarkan app_broken.py ikut cakupan
-source sukses. Perbaikan ini memusatkan deployment pada aplikasi login.
+Game dari folder saudara telah digabungkan ke repo ini: template game.html,
+static/js/game.js, static/css/style.css, dan route game/skor di app.py.
+Portal dan game memakai satu Deployment serta NodePort 30050. Manifest dan
+app_broken.py dari proyek lama tidak disalin. Delapan catatan skor lama
+dipertahankan melalui penyalinan data yang diperiksa terpisah dari image.
 
 ## Dokumentasi teknis
 
-Bukti validasi 31 Oktober 2026:
+Bukti historis sebelum penggabungan Pac-Man, 31 Oktober 2026:
 - [Quality gate gagal dan deployment dilewati](https://github.com/trearyanp-a11y/belajar-devsecops-pipeline/actions/runs/41111149858).
 - [Enam job sukses sampai deployment K3s](https://github.com/trearyanp-a11y/belajar-devsecops-pipeline/actions/runs/41112141952), revisi 562c36f999ab7239fc34e7099753b8be1f88af13.
 - [Run PR hanya menjalankan CI](https://github.com/trearyanp-a11y/belajar-devsecops-pipeline/actions/runs/41112148817).
 - 13 regression tests Linux lulus; Pylint app.py/wsgi.py 10.00/10.
 - Satu pod diganti: dua pod kembali Ready, SQLite tetap utuh dan akun lama tetap dapat login.
 
-Perubahan dokumentasi sesudah revisi tersebut tidak mengubah image yang sudah dideploy.
+Validasi portal gabungan: 18 regression tests (lima shell khusus Linux),
+Pylint 10.00/10; browser login salah/benar, kontrol game, skor, pencarian dan
+logout pada viewport 375, 768, 812, 1440 px. Bukti deployment terbaru dicatat di
+Desktop/catatan_pipeline.txt setelah workflow branch fitur selesai.
 
 - https://flask.palletsprojects.com/en/stable/deploying/gunicorn/
 - https://docs.python.org/3/library/sqlite3.html#how-to-use-the-connection-context-manager

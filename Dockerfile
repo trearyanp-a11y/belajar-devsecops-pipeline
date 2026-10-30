@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=appuser:appuser app.py wsgi.py ./
 COPY --chown=appuser:appuser templates/ ./templates/
+COPY --chown=appuser:appuser static/ ./static/
 RUN mkdir /data && chown appuser:appuser /data
 
 USER appuser

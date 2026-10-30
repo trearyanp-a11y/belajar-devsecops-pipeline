@@ -5,7 +5,7 @@ import shutil
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent
-image = Image.new("RGB", (2560, 1940), "#f5f7fb")
+image = Image.new("RGB", (2560, 2260), "#f5f7fb")
 draw = ImageDraw.Draw(image)
 INK = "#172b46"
 
@@ -46,7 +46,7 @@ def arrow(points, fill="#526983", width=5):
     draw.polygon(triangle, fill=fill)
 
 
-text(90, 45, "DEVSECOPS CI/CD  |  LOGIN FLASK", 53)
+text(90, 45, "DEVSECOPS CI/CD  |  LOGIN + PAC-MAN", 53)
 text(92, 119, "GitHub Actions -> VMware Ubuntu -> K3s  |  image hasil scan dipakai langsung", 29)
 draw.rounded_rectangle((65, 185, 2495, 940), radius=24, fill="#edf3fc")
 text(95, 208, "01  PIPELINE: EMPAT GATE PARALEL, SATU IMAGE DEPLOYMENT", 30)
@@ -80,9 +80,9 @@ arrow([(1110, 1220), (1285, 1220)])
 arrow([(1740, 1220), (1915, 1220)])
 box((80, 1430, 475, 1585), "Browser Windows", "VMnet8: 192.168.15.1\nHTTP ke VM:30050", "#fff4d9")
 box((655, 1430, 1110, 1585), "flask-service", "NodePort 30050 -> 5000\nClusterIP: 10.43.187.238", "#e0ecff")
-box((1285, 1380, 1740, 1520), "Pod Flask 1", "Gunicorn :5000\nReady /health; live /live", "#ffffff")
-box((1285, 1610, 1740, 1750), "Pod Flask 2", "Gunicorn :5000\nReady /health; live /live", "#ffffff")
-box((1915, 1500, 2370, 1680), "PVC flask-pvc", "1 GiB local-path / RWO\n/data/users.db bersama\nPassword disimpan hash", "#dcf1df")
+box((1285, 1380, 1740, 1520), "Pod Login + Pac-Man 1", "Gunicorn :5000\nSession key dari Secret bersama", "#ffffff")
+box((1285, 1610, 1740, 1750), "Pod Login + Pac-Man 2", "Gunicorn :5000\nReady /health; live /live", "#ffffff")
+box((1915, 1500, 2370, 1680), "PVC flask-pvc", "1 GiB local-path / RWO\n/data/users.db bersama\nTabel users + scores", "#dcf1df")
 arrow([(475, 1500), (655, 1500)])
 arrow([(1110, 1500), (1195, 1500), (1195, 1450), (1285, 1450)])
 arrow([(1110, 1500), (1195, 1500), (1195, 1680), (1285, 1680)])
@@ -90,7 +90,15 @@ arrow([(2140, 1300), (2140, 1340), (1510, 1340), (1510, 1380)])
 arrow([(2370, 1220), (2430, 1220), (2430, 1785), (1510, 1785), (1510, 1750)])
 arrow([(1740, 1450), (1830, 1450), (1830, 1550), (1915, 1550)])
 arrow([(1740, 1680), (1830, 1680), (1830, 1620), (1915, 1620)])
-text(95, 1870, "Verifikasi: HTTP 200 + DB ready + /about.revision sesuai SHA  |  Satu VM, bukan HA antar-node", 28)
+draw.rounded_rectangle((65, 1860, 2495, 2150), radius=24, fill="#fff4d9")
+text(95, 1880, "03  ALUR PENGGUNA: LOGIN WAJIB SEBELUM BERMAIN", 30)
+box((105, 1960, 615, 2100), "Portal login", "Username + password\nParameterized SQL + hash", "#ffffff")
+box((725, 1960, 1235, 2100), "Session valid", "Signed cookie + CSRF\nKey sama pada kedua pod", "#ffffff")
+box((1345, 1960, 1855, 2100), "Pac-Man /game", "Game dan API wajib login\nLogout menghapus session", "#ffffff")
+box((1965, 1960, 2405, 2100), "Skor persisten", "Identitas akun dari session\nLeaderboard + pencarian", "#ffffff")
+for start, end in ((615, 725), (1235, 1345), (1855, 1965)):
+    arrow([(start, 2030), (end, 2030)])
+text(95, 2190, "Verifikasi: HTTP + DB ready + revision SHA + login/game  |  Satu VM, bukan HA antar-node", 28)
 image.save(ROOT / "diagram_pipeline.jpg", quality=95, subsampling=0)
 desktop = Path.home() / "Desktop"
 if desktop.is_dir():

@@ -1,97 +1,63 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="id">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Sistem Login Aman</title>
-        <style>
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                margin: 0;
-                background-color: #f4f6f8;
-            }
-            .card {
-                background: #ffffff;
-                padding: 2rem;
-                border-radius: 8px;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-                width: 320px;
-            }
-            h2 {
-                margin-top: 0;
-                text-align: center;
-                color: #333;
-            }
-            .form-group {
-                margin-bottom: 1rem;
-            }
-            label {
-                display: block;
-                margin-bottom: 0.5rem;
-                font-size: 0.9rem;
-                color: #555;
-            }
-            input[type="text"],
-            input[type="password"] {
-                width: 100%;
-                padding: 0.6rem;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                box-sizing: border-box;
-            }
-            button {
-                width: 100%;
-                padding: 0.7rem;
-                background-color: #0066cc;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 1rem;
-                cursor: pointer;
-            }
-            button:hover {
-                background-color: #0052a3;
-            }
-            .alert {
-                padding: 0.6rem;
-                border-radius: 4px;
-                margin-bottom: 1rem;
-                text-align: center;
-                font-size: 0.9rem;
-            }
-            .success {
-                background-color: #d4edda;
-                color: #155724;
-            }
-            .danger {
-                background-color: #f8d7da;
-                color: #721c24;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="card">
-            <h2>Portal Login</h2>
-            {% if message %}
-            <div class="alert {{ status_class }}">{{ message }}</div>
-            {% endif %}
-
-            <!-- nosemgrep: python.django.security.django-no-csrf-token.django-no-csrf-token -->
-            <form method="POST" action="/">
-                <div class="form-group">
-                    <label for="username">Nama Pengguna</label>
-                    <input type="text" id="username" name="username" required />
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0c0d12">
+    <title>Masuk ke arcade · Pac-Man Mini</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/portal.css') }}">
+    <script src="{{ url_for('static', filename='js/portal.js') }}" defer></script>
+</head>
+<body class="portal-page">
+    <header class="portal-header">
+        <a class="portal-brand" href="{{ url_for('index') }}" aria-label="Pac-Man Mini, beranda">
+            <span class="pac-symbol" aria-hidden="true"></span>
+            <span>PAC-MAN <span class="brand-badge">MINI</span></span>
+        </a>
+        <span class="portal-edition">THE ARCADE IS CALLING</span>
+    </header>
+    <main class="portal-layout">
+        <section class="portal-story" aria-labelledby="arcade-title">
+            <p class="eyebrow"><span class="tiny-dot"></span> ONE MORE ROUND.</p>
+            <h1 id="arcade-title">Labirin klasik.<br>Rekor <span>baru.</span></h1>
+            <p class="portal-intro">Kejar titiknya. Hindari hantunya.<br>Giliranmu menguasai papan peringkat.</p>
+            <div class="maze-preview" aria-hidden="true">
+                <svg viewBox="0 0 520 250" fill="none">
+                    <g stroke="#2858cf" stroke-width="3">
+                        <rect x="12" y="12" width="496" height="226" rx="18"/>
+                        <path d="M27 65V28h189v37H27Zm277 0V28h189v37H304ZM27 184v38h189v-38H27Zm277 0v38h189v-38H304Z"/>
+                        <path d="M68 103h97v42H68zm287 0h97v42h-97zM242 28h35v70h-35zm0 124h35v70h-35zM204 103h112v41H204z"/>
+                    </g>
+                    <path d="M45 83H475M45 166H475" stroke="#f5c518" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 19"/>
+                    <path d="M91 145a22 22 0 1 1 0-40l-20 20z" fill="#f5c518"/>
+                    <g transform="translate(378 107)"><path d="M0 18a18 18 0 0 1 36 0v23l-9-7-9 7-9-7-9 7z" fill="#ff667a"/><circle cx="12" cy="16" r="5" fill="white"/><circle cx="26" cy="16" r="5" fill="white"/><circle cx="14" cy="16" r="2.5" fill="#14161e"/><circle cx="28" cy="16" r="2.5" fill="#14161e"/></g>
+                </svg>
+                <span class="preview-caption">PLAYER 1 · READY WHEN YOU ARE</span>
+            </div>
+            <div class="portal-features"><span>01 / MAIN</span><span>02 / KUMPULKAN SKOR</span><span>03 / PECAHKAN REKOR</span></div>
+        </section>
+        <section class="login-panel" aria-labelledby="login-title">
+            <div class="login-topline"><span>PLAYER ACCESS</span><span class="player-number">01</span></div>
+            <h2 id="login-title">Siap bermain?</h2>
+            <p class="login-description">Masuk ke akunmu untuk membuka arena.</p>
+            {% if message %}<div class="login-error" role="alert">{{ message }}</div>{% endif %}
+            <form method="post" action="{{ url_for('index') }}" class="login-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label for="username">Username</label>
+                <input id="username" name="username" type="text" autocomplete="username" placeholder="Masukkan username" required maxlength="128" value="{{ request.form.get('username', '') }}">
+                <label for="password">Password</label>
+                <div class="password-field">
+                    <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Masukkan password" required maxlength="1024">
+                    <button type="button" id="togglePassword" class="password-toggle" aria-controls="password" aria-pressed="false" aria-label="Tampilkan password">Lihat</button>
                 </div>
-                <div class="form-group">
-                    <label for="password">Kata Sandi</label>
-                    <input type="password" id="password" name="password" required />
-                </div>
-                <button type="submit">Masuk</button>
+                <p class="login-help">Gunakan akun yang diberikan oleh pengelola.</p>
+                <button type="submit" class="btn btn-primary login-submit"><span>Masuk &amp; main</span><span aria-hidden="true">→</span></button>
             </form>
-        </div>
-    </body>
+            <div class="login-footnote"><span class="tiny-dot"></span> Skor tersimpan atas nama akunmu.</div>
+        </section>
+    </main>
+    <footer class="portal-footer"><span>PAC-MAN MINI / CLASSIC PLAY. NEW RECORDS.</span><span>ARCADE EDITION · 2026</span></footer>
+</body>
 </html>

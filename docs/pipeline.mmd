@@ -21,5 +21,12 @@ flowchart TD
     N --> P[Readiness DB dan liveness proses]
     M --> Q[Service NodePort 30050 ke port 5000]
     Q --> R[Browser Windows]
+    R --> V[Portal login arcade]
+    V --> W[Parameterized SQL + verifikasi hash password]
+    W --> Y[Signed session: Secret flask-session bersama]
+    Y --> Z[Game Pac-Man + API skor wajib login]
+    Z --> AA[Leaderboard dan pencarian parameterized SQL]
+    AA --> O
+    O --> AB[Tabel users dan scores persisten]
     Q --> S[Verifikasi HTTP dan revision commit]
     T[Pull request] --> U[CI saja: deployment skipped]

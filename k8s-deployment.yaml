@@ -43,6 +43,11 @@ spec:
           image: secure-flask-app:latest
           imagePullPolicy: Never
           env:
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: flask-session
+                  key: secret-key
             - name: DATABASE_PATH
               value: /data/users.db
             - name: ADMIN_PASSWORD
