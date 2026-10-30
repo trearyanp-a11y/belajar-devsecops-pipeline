@@ -42,13 +42,18 @@ class DeploymentTests(unittest.TestCase):
         self.command(
             "curl",
             '#!/usr/bin/env python3\n'
-            'import json, os, sys\n'
+            'import json, os, sys, pathlib\n'
             'if os.getenv("HTTP_FAILURE"): sys.exit(22)\n'
+            'marker=pathlib.Path(os.environ["TEST_ROOT"])/"old-response"\n'
+            'if os.getenv("TRANSIENT_OLD") and sys.argv[-1].endswith("/about") '
+            'and not marker.exists():\n'
+            ' marker.touch(); print(\'{"version":"1.0.0"}\'); sys.exit(0)\n'
             'payload = {"status":"ok","service":"flask-auth-app","database":"ready"} '
             'if sys.argv[-1].endswith("/health") else '
             '{"revision":os.getenv("OLD_REVISION",os.environ["TEST_REVISION"])}\n'
             'print(json.dumps(payload))\n',
         )
+        self.command("sleep", "#!/bin/sh\nexit 0\n")
 
     def tearDown(self):
         self.directory.cleanup()
@@ -97,6 +102,13 @@ class DeploymentTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(self.env["OLD_REVISION"], result.stderr)
         self.assertNotIn("Deployment verified", result.stdout)
+
+    def test_rollout_tolerates_a_terminating_pod_before_endpoints_converge(self):
+        """The old pod may still answer briefly after rollout status succeeds."""
+        self.env["TRANSIENT_OLD"] = "1"
+        result = self.run_deploy()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Deployment verified", result.stdout)
 
 
 if __name__ == "__main__":

@@ -18,12 +18,27 @@ sed "s|image: secure-flask-app:latest|image: $image|" k8s-deployment.yaml |
 sudo k3s kubectl rollout status deployment/flask-app --timeout=180s
 sudo k3s kubectl get pods -l app=flask-app -o wide
 sudo k3s kubectl get svc flask-service
-curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 2 \
-  --connect-timeout 5 --max-time 15 http://192.168.15.151:30050/health |
-  python3 -c 'import json,sys; p=json.load(sys.stdin); assert p["status"]=="ok" and p["service"]=="flask-auth-app" and p["database"]=="ready", p'
-for attempt in {1..4}; do
-  curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+verify_endpoints() {
+  curl --fail --silent --show-error --connect-timeout 5 --max-time 10 \
+    http://192.168.15.151:30050/health |
+    python3 -c 'import json,sys; p=json.load(sys.stdin); assert p.get("status")=="ok" and p.get("service")=="flask-auth-app" and p.get("database")=="ready", p' &&
+  curl --fail --silent --show-error --connect-timeout 5 --max-time 10 \
     http://192.168.15.151:30050/about |
-    EXPECTED_REVISION="$revision" python3 -c 'import json,os,sys; p=json.load(sys.stdin); assert p["revision"]==os.environ["EXPECTED_REVISION"], p'
+    EXPECTED_REVISION="$revision" python3 -c 'import json,os,sys; p=json.load(sys.stdin); assert p.get("revision")==os.environ["EXPECTED_REVISION"], p'
+}
+# Old terminating endpoints may briefly answer after rollout status succeeds.
+consecutive=0
+for attempt in {1..20}; do
+  if verify_endpoints; then
+    consecutive=$((consecutive + 1))
+    if (( consecutive == 4 )); then
+      echo "Deployment verified at revision $revision"
+      exit 0
+    fi
+  else
+    consecutive=0
+  fi
+  sleep 2
 done
-echo "Deployment verified at revision $revision"
+echo "HTTP/readiness/revision did not converge to $revision" >&2
+exit 1
