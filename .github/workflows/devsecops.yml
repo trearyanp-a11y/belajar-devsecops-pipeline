@@ -7,141 +7,124 @@ on:
     branches: ["main", "master"]
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  # ==========================================
-  # CI JOB 1: SAST Scan (Semgrep)
-  # ==========================================
   sast-scan:
     name: Semgrep SAST Scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
-      image: semgrep/semgrep
+      image: semgrep/semgrep:1.183.0
     steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Run Semgrep SAST
-        run: semgrep scan --config auto --error --verbose --exclude=".github"
-
-  # ==========================================
-  # CI JOB 2: Code Quality (Pylint)
-  # ==========================================
-  pylint-check:
-    name: Pylint Code Quality Gate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.10"
+          persist-credentials: false
+      - name: Run Semgrep SAST
+        run: semgrep scan --config p/python --config p/secrets --config p/dockerfile --error --metrics=off --exclude=".github" --exclude="tests"
 
+  pylint-check:
+    name: Pylint and Regression Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
       - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pylint
-          pip install -r requirements.txt
-
+        run: python -m pip install -r requirements.txt pylint==4.1.1
+      - name: Run Regression Tests
+        run: python -B -m unittest discover -s tests -v
       - name: Run Pylint Check
-        run: pylint --fail-under=9.0 app.py
+        run: pylint --fail-under=9.0 app.py wsgi.py
 
-  # ==========================================
-  # CI JOB 3: Dependency Vulnerability Check
-  # ==========================================
   dependency-check:
     name: pip-audit Dependency Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.10"
-
-      - name: Install and Run pip-audit
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Audit Locked Dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install pip-audit
+          python -m pip install pip-audit==2.10.1
           pip-audit -r requirements.txt
 
-  # ==========================================
-  # CI JOB 4: Trivy Filesystem Scan
-  # ==========================================
   trivy-fs-scan:
     name: Trivy Filesystem Scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Run Trivy FS Scan
-        uses: aquasecurity/trivy-action@master
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          scan-type: "fs"
+          persist-credentials: false
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
           scan-ref: "."
-          severity: "CRITICAL,HIGH"
+          severity: CRITICAL,HIGH
           exit-code: "1"
 
-  # ==========================================
-  # CI JOB 5: Build + Trivy Image Scan
-  # ==========================================
   trivy-image-scan:
-    name: Trivy Docker Image Scan
+    name: Build and Scan Deployment Image
     needs: [sast-scan, pylint-check, dependency-check, trivy-fs-scan]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Build Docker Image
-        run: docker build -t secure-flask-app:test .
-
-      - name: Scan Docker Image with Trivy
-        uses: aquasecurity/trivy-action@master
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          image-ref: "secure-flask-app:test"
-          severity: "CRITICAL"
+          persist-credentials: false
+      - name: Build Immutable Image
+        run: docker build --build-arg APP_REVISION="$GITHUB_SHA" -t "secure-flask-app:$GITHUB_SHA" .
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: secure-flask-app:${{ github.sha }}
+          severity: CRITICAL
           exit-code: "1"
           ignore-unfixed: "true"
+      - name: Export Scanned Image
+        run: |
+          mkdir image-artifact
+          docker save "secure-flask-app:$GITHUB_SHA" -o image-artifact/image.tar
+          cd image-artifact
+          sha256sum image.tar > image.tar.sha256
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: flask-image-${{ github.sha }}
+          path: image-artifact/
+          retention-days: 7
+          if-no-files-found: error
 
-  # ==========================================
-  # CD STAGE: Deploy ke K3s di VM
-  # ==========================================
   deploy-to-k3s:
-    name: Build & Deploy to K3s
+    name: Deploy Scanned Image to K3s
     needs: [trivy-image-scan]
-    runs-on: self-hosted
+    # PRs run CI only. A repository maintainer may explicitly dispatch a demo branch.
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, Linux, X64]
+    concurrency:
+      group: k3s-flask-deployment
+      cancel-in-progress: false
     steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Build Docker Image
-        run: docker build -t secure-flask-app:latest .
-
-      - name: Import Image ke K3s (containerd)
-        run: |
-          docker save secure-flask-app:latest -o /tmp/flask-app.tar
-          sudo k3s ctr images import /tmp/flask-app.tar
-          rm -f /tmp/flask-app.tar
-
-      - name: Deploy ke Kubernetes
-        run: |
-          sudo k3s kubectl apply -f k8s-deployment.yaml
-          sudo k3s kubectl rollout restart deployment/flask-app
-          sudo k3s kubectl rollout status deployment/flask-app --timeout=60s
-
-      - name: Verifikasi Deployment
-        run: |
-          echo "=== Pods ==="
-          sudo k3s kubectl get pods -l app=flask-app
-          echo ""
-          echo "=== Service ==="
-          sudo k3s kubectl get svc flask-service
-          echo ""
-          echo "=== Test Akses ==="
-          sleep 5
-          curl -s http://localhost:30050 | head -20 || echo "Menunggu pod ready..."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: flask-image-${{ github.sha }}
+          path: ${{ runner.temp }}/flask-image-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Import, Deploy, and Verify
+        env:
+          ARTIFACT_DIRECTORY: ${{ runner.temp }}/flask-image-${{ github.run_id }}-${{ github.run_attempt }}
+        run: bash scripts/deploy.sh "$ARTIFACT_DIRECTORY" "$GITHUB_SHA"
+      - name: Remove Temporary Image Artifact
+        if: always()
+        env:
+          ARTIFACT_DIRECTORY: ${{ runner.temp }}/flask-image-${{ github.run_id }}-${{ github.run_attempt }}
+        run: rm -f -- "$ARTIFACT_DIRECTORY/image.tar" "$ARTIFACT_DIRECTORY/image.tar.sha256"
