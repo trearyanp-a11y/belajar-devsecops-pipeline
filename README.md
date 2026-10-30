@@ -41,7 +41,7 @@ untuk database kosong. Jangan commit file database, .env, atau password.
 
     .venv\Scripts\python -B -m unittest discover -s tests -v
 
-Empat tes deployment shell dilewati di Windows dan dijalankan di CI Linux.
+Tes deployment shell dilewati di Windows dan dijalankan di CI Linux.
 CI memakai Pylint 4.1.1 dengan ambang 9.0 pada app.py dan wsgi.py.
 
 ## Provisioning dan migrasi database
@@ -153,6 +153,15 @@ game, integrasikan repo/runner, dan jangan biarkan app_broken.py ikut cakupan
 source sukses. Perbaikan ini memusatkan deployment pada aplikasi login.
 
 ## Dokumentasi teknis
+
+Bukti validasi 31 Oktober 2026:
+- [Quality gate gagal dan deployment dilewati](https://github.com/trearyanp-a11y/belajar-devsecops-pipeline/actions/runs/41111149858).
+- [Enam job sukses sampai deployment K3s](https://github.com/trearyanp-a11y/belajar-devsecops-pipeline/actions/runs/41112141952), revisi 562c36f999ab7239fc34e7099753b8be1f88af13.
+- [Run PR hanya menjalankan CI](https://github.com/trearyanp-a11y/belajar-devsecops-pipeline/actions/runs/41112148817).
+- 13 regression tests Linux lulus; Pylint app.py/wsgi.py 10.00/10.
+- Satu pod diganti: dua pod kembali Ready, SQLite tetap utuh dan akun lama tetap dapat login.
+
+Perubahan dokumentasi sesudah revisi tersebut tidak mengubah image yang sudah dideploy.
 
 - https://flask.palletsprojects.com/en/stable/deploying/gunicorn/
 - https://docs.python.org/3/library/sqlite3.html#how-to-use-the-connection-context-manager
