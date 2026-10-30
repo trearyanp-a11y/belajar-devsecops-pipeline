@@ -1,5 +1,17 @@
-@"
 .git
-*.db
+.github
+.gitignore
+.venv
 __pycache__
-"@ | Out-File -Encoding utf8 .dockerignore
+*.pyc
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+.env
+*.tar
+*.tar.gz
+.pytest_cache
+tests
+docs
+build

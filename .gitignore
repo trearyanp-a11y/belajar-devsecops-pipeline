@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+.env
+.pytest_cache/
+*.tar
+*.tar.gz
+build/

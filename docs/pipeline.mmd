@@ -1,0 +1,25 @@
+flowchart TD
+    A[Windows developer] --> B[GitHub push main/master atau manual]
+    B --> C[Semgrep SAST]
+    B --> D[Pylint dan regression tests]
+    B --> E[pip-audit]
+    B --> F[Trivy filesystem]
+    C --> G{Semua gate lolos?}
+    D --> G
+    E --> G
+    F --> G
+    G -->|Tidak| X[Gagal: build/deploy dilewati]
+    G -->|Ya| H[Build image bertag SHA dan Trivy image]
+    H --> I{Scan image lolos?}
+    I -->|Tidak| X
+    I -->|Ya| J[Upload artifact image TAR dan SHA256]
+    J --> K[Self-hosted runner yan di VM Ubuntu]
+    K --> L[Verifikasi SHA256 dan import containerd]
+    L --> M[Apply manifest tag SHA dan tunggu rollout]
+    M --> N[Deployment flask-app: dua pod]
+    N --> O[PVC flask-pvc: SQLite bersama]
+    N --> P[Readiness DB dan liveness proses]
+    M --> Q[Service NodePort 30050 ke port 5000]
+    Q --> R[Browser Windows]
+    Q --> S[Verifikasi HTTP dan revision commit]
+    T[Pull request] --> U[CI saja: deployment skipped]
