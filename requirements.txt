@@ -1,5 +1,5 @@
 # Locked application dependencies for Python 3.12.
-Flask==2.3.1
+Flask==3.1.1
 Werkzeug==3.1.9
 Jinja2==3.1.6
 MarkupSafe==3.0.4
